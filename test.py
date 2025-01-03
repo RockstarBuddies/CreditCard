@@ -5,7 +5,7 @@ def connect_db():
         connection = mysql.connector.connect(
             host='localhost',
             user='root',
-            password='WINDOWS',
+            password='password',
             database='credit_card_management'
         )
         return connection
