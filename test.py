@@ -285,6 +285,54 @@ def send_card_request(user_id, card_id, request_type, new_card_type=None):
         finally:
             cursor.close()
             connection.close()
+def process_card_request():
+    connection = connect_db()
+    if connection:
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM CardRequests WHERE status = 'Pending'")
+            requests = cursor.fetchall()
+            if not requests:
+                print("No pending card requests to process.")
+                return
+
+            print("Pending Card Requests:")
+            for request in requests:
+                print(request)
+
+            request_id = input("Enter the ID of the request to process: ")
+            cursor.execute("SELECT * FROM CardRequests WHERE request_id = %s", (request_id,))
+            request = cursor.fetchone()
+
+            if not request:
+                print("Request not found.")
+                return
+
+            action = input("Enter action (Accept/Deny): ").strip().lower()
+            if action == 'accept':
+                if request['request_type'] == 'Delete':
+                    cursor.execute("DELETE FROM Cards WHERE card_id = %s", (request['card_id'],))
+                    print(f"Card ID {request['card_id']} deleted successfully.")
+                elif request['request_type'] == 'Upgrade':
+                    cursor.execute(
+                        "UPDATE Cards SET card_type = %s WHERE card_id = %s",
+                        (request['new_card_type'], request['card_id'])
+                    )
+                    print(f"Card ID {request['card_id']} upgraded to {request['new_card_type']}.")
+                cursor.execute("UPDATE CardRequests SET status = 'Accepted' WHERE request_id = %s", (request_id,))
+                print("Request accepted.")
+            elif action == 'deny':
+                cursor.execute("UPDATE CardRequests SET status = 'Denied' WHERE request_id = %s", (request_id,))
+                print("Request denied.")
+            else:
+                print("Invalid action.")
+            connection.commit()
+        except mysql.connector.Error as err:
+            print(f"Error processing card request: {err}")
+        finally:
+            cursor.close()
+            connection.close()
+
 def view_card_requests():
     connection = connect_db()
     if connection:
