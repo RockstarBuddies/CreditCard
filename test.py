@@ -56,6 +56,19 @@ def create_tables():
                     FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
                 );
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS CardRequests (
+                    request_id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT,
+                    card_id INT,
+                    request_type ENUM('Delete', 'Upgrade') NOT NULL,
+                    new_card_type ENUM('Premium', 'Gold', 'Silver') DEFAULT NULL,
+                    request_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status ENUM('Pending', 'Accepted', 'Denied') DEFAULT 'Pending',
+                    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+                    FOREIGN KEY (card_id) REFERENCES Cards(card_id) ON DELETE CASCADE
+                );
+            """)
             connection.commit()
             print("Tables created successfully.")
         except mysql.connector.Error as err:
@@ -256,6 +269,123 @@ def view_activity_logs():
         finally:
             cursor.close()
             connection.close()
+def send_card_request(user_id, card_id, request_type, new_card_type=None):
+    connection = connect_db()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO CardRequests (user_id, card_id, request_type, new_card_type) VALUES (%s, %s, %s, %s)",
+                (user_id, card_id, request_type, new_card_type)
+            )
+            connection.commit()
+            print(f"Request for {request_type} sent successfully.")
+        except mysql.connector.Error as err:
+            print(f"Error sending request: {err}")
+        finally:
+            cursor.close()
+            connection.close()
+def view_card_requests():
+    connection = connect_db()
+    if connection:
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM CardRequests WHERE status = 'Pending'")
+            requests = cursor.fetchall()
+            for request in requests:
+                print(request)
+        except mysql.connector.Error as err:
+            print(f"Error viewing card requests: {err}")
+        finally:
+            cursor.close()
+            connection.close()
+def process_card_request():
+    connection = connect_db()
+    if connection:
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM CardRequests WHERE status = 'Pending'")
+            requests = cursor.fetchall()
+            if not requests:
+                print("No pending card requests to process.")
+                return
+
+            print("Pending Card Requests:")
+            for request in requests:
+                print(request)
+
+            request_id = input("Enter the ID of the request to process: ")
+            cursor.execute("SELECT * FROM CardRequests WHERE request_id = %s", (request_id,))
+            request = cursor.fetchone()
+
+            if not request:
+                print("Request not found.")
+                return
+
+            action = input("Enter action (Accept/Deny): ").strip().lower()
+            if action == 'accept':
+                if request['request_type'] == 'Delete':
+                    cursor.execute("DELETE FROM Cards WHERE card_id = %s", (request['card_id'],))
+                    print(f"Card ID {request['card_id']} deleted successfully.")
+                elif request['request_type'] == 'Upgrade':
+                    cursor.execute(
+                        "UPDATE Cards SET card_type = %s WHERE card_id = %s",
+                        (request['new_card_type'], request['card_id'])
+                    )
+                    print(f"Card ID {request['card_id']} upgraded to {request['new_card_type']}.")
+                cursor.execute("UPDATE CardRequests SET status = 'Accepted' WHERE request_id = %s", (request_id,))
+                print("Request accepted.")
+            elif action == 'deny':
+                cursor.execute("UPDATE CardRequests SET status = 'Denied' WHERE request_id = %s", (request_id,))
+                print("Request denied.")
+            else:
+                print("Invalid action.")
+            connection.commit()
+        except mysql.connector.Error as err:
+            print(f"Error processing card request: {err}")
+        finally:
+            cursor.close()
+            connection.close()
+
+
+def view_all_cards():
+    connection = connect_db()
+    if connection:
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM Cards")
+            cards = cursor.fetchall()
+            if cards:
+                print("All Cards:")
+                for card in cards:
+                    print(card)
+            else:
+                print("No cards found.")
+        except mysql.connector.Error as err:
+            print(f"Error fetching all cards: {err}")
+        finally:
+            cursor.close()
+            connection.close()
+
+def view_all_transactions():
+    connection = connect_db()
+    if connection:
+        cursor = connection.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM Transactions")
+            transactions = cursor.fetchall()
+            if transactions:
+                print("All Transactions:")
+                for transaction in transactions:
+                    print(transaction)
+            else:
+                print("No transactions found.")
+        except mysql.connector.Error as err:
+            print(f"Error fetching all transactions: {err}")
+        finally:
+            cursor.close()
+            connection.close()
+
 
 def admin_menu(user):
     while True:
@@ -264,7 +394,10 @@ def admin_menu(user):
         print("2. View All Cards")
         print("3. View All Transactions")
         print("4. View Activity Logs")
-        print("5. Logout")
+        print("5. View Card Requests")
+        print("6. Process Card Requests")
+        print("7. Add Transactions")
+        print("8. Logout")
         choice = input("Enter your choice: ")
 
         if choice == '1':
@@ -273,47 +406,36 @@ def admin_menu(user):
             role = input("Enter role (admin/user): ")
             register_user(username, password, role)
         elif choice == '2':
-            connection = connect_db()
-            if connection:
-                cursor = connection.cursor(dictionary=True)
-                try:
-                    cursor.execute("SELECT * FROM Cards")
-                    cards = cursor.fetchall()
-                    for card in cards:
-                        print(card)
-                except mysql.connector.Error as err:
-                    print(f"Error fetching cards: {err}")
-                finally:
-                    cursor.close()
-                    connection.close()
+            view_all_cards()
         elif choice == '3':
-            connection = connect_db()
-            if connection:
-                cursor = connection.cursor(dictionary=True)
-                try:
-                    cursor.execute("SELECT * FROM Transactions")
-                    transactions = cursor.fetchall()
-                    for transaction in transactions:
-                        print(transaction)
-                except mysql.connector.Error as err:
-                    print(f"Error fetching transactions: {err}")
-                finally:
-                    cursor.close()
-                    connection.close()
+            view_all_transactions()
         elif choice == '4':
             view_activity_logs()
         elif choice == '5':
+            view_card_requests()
+        elif choice == '6':
+            process_card_request()
+        elif choice=='7':
+            card_id = int(input("Enter card ID for transaction: "))
+            amount = float(input("Enter transaction amount: "))
+            transaction_type = input("Enter transaction type (Credit/Debit): ")
+            if transaction_type in ['Credit', 'Debit']:
+                add_transaction(card_id, amount, transaction_type, user['user_id'])
+            else:
+                print("Invalid transaction type.")
+        elif choice == '8':
             break
         else:
             print("Invalid choice.")
+
 
 def user_menu(user):
     while True:
         print("\nUser Menu")
         print("1. Create Card")
         print("2. View My Cards")
-        print("3. Delete Card")
-        print("4. Upgrade Card")
+        print("3. Request Card Deletion")
+        print("4. Request Card Upgrade")
         print("5. Add Transaction")
         print("6. View Transactions")
         print("7. Logout")
@@ -331,13 +453,13 @@ def user_menu(user):
             for card in cards:
                 print(card)
         elif choice == '3':
-            card_id = int(input("Enter card ID to delete: "))
-            delete_card(card_id, user['user_id'])
+            card_id = int(input("Enter card ID to request deletion: "))
+            send_card_request(user['user_id'], card_id, 'Delete')
         elif choice == '4':
-            card_id = int(input("Enter card ID to upgrade: "))
+            card_id = int(input("Enter card ID to request upgrade: "))
             new_type = input("Enter new card type (Premium, Gold, Silver): ")
             if new_type in ['Premium', 'Gold', 'Silver']:
-                upgrade_card(card_id, new_type, user['user_id'])
+                send_card_request(user['user_id'], card_id, 'Upgrade', new_type)
             else:
                 print("Invalid card type.")
         elif choice == '5':
